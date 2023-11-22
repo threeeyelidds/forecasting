@@ -33,13 +33,13 @@ frame_numbers = []
 
 for ann in [train, val, test]:
     for x in ann['annotations']:
-        fname = args.fname_format.format(video_uid=x["video_uid"], frame_number=x["frame"])
+        fname = args.fname_format.format(video_uid=x["video_id"], frame_number=x["frame"])
         names.append(fname)
         if args.clips:
             video_ids.append(x['clip_uid'])
             frame_numbers.append(x['clip_frame'])
         else:
-            video_ids.append(x['video_uid'])
+            video_ids.append(x['video_id'])
             frame_numbers.append(x['frame'])
 
 #images = sorted(images)
