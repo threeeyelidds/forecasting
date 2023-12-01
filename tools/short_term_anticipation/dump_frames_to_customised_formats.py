@@ -66,7 +66,7 @@ class PyAVSTADataset(Dataset):
             video_id = ann["video_id"]
             last_frame = ann["frame"]
             first_frame = np.max([0, last_frame - args.context_frames + 1])
-            frame_numbers = np.arange(first_frame, last_frame + 1)
+            frame_numbers = np.arange(last_frame, first_frame-1, -args.stride)
             frames_per_video[video_id].append(frame_numbers)
 
         self.chunks = []
@@ -153,6 +153,37 @@ def _save_mp4(output_filename: Path, images: List[np.ndarray]):
     # Release the video writer object
     video_writer.release()
 
+def _dump_sample(frames, keys):
+    video_id = keys[-1].split("_")[0]
+    idx = np.where([k.startswith(video_id) for k in keys])[0]
+    these_frames = [frames[i] for i in idx]
+    if args.save_as_video:  # and len(these_frames)>100:
+        path_to_output_videos = (
+            Path(args.path_to_output_lmdbs.parent) / "videos"
+        )
+        _save_mp4(
+            path_to_output_videos / (keys[-1] + ".mp4"),
+            these_frames
+        )
+    elif args.save_as_film:
+        path_to_output_films = (
+            Path(args.path_to_output_lmdbs.parent) / f"films_s{args.stride}_f{args.context_frames}" / video_id
+        )
+        path_to_output_films.mkdir(parents=True, exist_ok=True)
+        # Create a new image with the combined width and height
+        film = Image.new("RGB", (these_frames[0].shape[1], args.frame_height*args.context_frames//args.stride))
+        # film = Image.new("RGB", (these_frames[0].shape[1]*args.context_frames, args.frame_height))
+        # x_offset = 0
+        for i, frame in enumerate(these_frames, start=0):
+            pil_img = Image.fromarray(np.uint8(frame[:,:,::-1]))
+            # Paste the images onto the new image
+            # film.paste(pil_img, (x_offset, 0))
+            film.paste(pil_img, (0, i*args.frame_height))
+            # x_offset += pil_img.size[0]
+        # Save the new image
+        film.save(path_to_output_films / (f"{keys[-1]}.jpg"))
+    else:
+        raise NotImplementedError
 
 def main():
     train = json.load(open(args.path_to_annotations / "fho_sta_train.json"))
@@ -163,8 +194,6 @@ def main():
     annotations = []
     for j in [train, val, test]:
         annotations += j["annotations"]
-
-    # l = Ego4DHLMDB(args.path_to_output_lmdbs)
 
     ## Define the dataset and dataloader
     dset = PyAVSTADataset(
@@ -178,40 +207,8 @@ def main():
         dset, batch_size=args.batch_size, collate_fn=collate, num_workers=8
     )
 
-    ## Iterate over the dataloader
     for frames, keys in tqdm(dloader):
-        for parent in np.unique([k.split("_")[0] for k in keys]):
-            idx = np.where([k.startswith(parent) for k in keys])[0]
-            these_frames = [frames[i] for i in idx]
-            n_frame = len(these_frames)
-            start_frame = (n_frame-1) % args.stride
-            if args.save_as_video:  # and len(these_frames)>100:
-                path_to_output_videos = (
-                    Path(args.path_to_output_lmdbs.parent) / "videos"
-                )
-                _save_mp4(
-                    path_to_output_videos / (keys[-1] + ".mp4"),
-                    these_frames[start_frame :: args.stride],
-                )
-            elif args.save_as_film:
-                video_id = keys[-1].split("_")[0]
-                path_to_output_films = (
-                    Path(args.path_to_output_lmdbs.parent) / "films_jpg" / video_id
-                )
-                path_to_output_films.mkdir(parents=True, exist_ok=True)
-                np_images = these_frames[start_frame :: args.stride]
-                # Create a new image with the combined width and height
-                film = Image.new("RGB", (np_images[0].shape[1]*args.context_frames, args.frame_height))
-                x_offset = 0
-                for i, frame in enumerate(np_images, start=0):
-                    pil_img = Image.fromarray(np.uint8(frame[:,:,::-1]))
-                    # Paste the images onto the new image
-                    film.paste(pil_img, (x_offset, 0))
-                    x_offset += pil_img.size[0]
-                # Save the new image
-                film.save(path_to_output_films / (f"{keys[-1]}.jpg"))
-            else:
-                raise NotImplementedError
+        _dump_sample(frames, keys)
 
 
 if __name__ == "__main__":
